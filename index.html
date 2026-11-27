@@ -47,20 +47,33 @@ th{background:var(--chip)}td.n,th.n{text-align:right}
 .btn{padding:9px 14px;border:1px solid var(--accent);background:var(--accent);color:#fff;border-radius:8px;cursor:pointer;font-weight:700}
 .btn.ghost{background:#fff;color:var(--accent-d)}
 .empty{color:var(--sub);padding:20px 0;text-align:center}
+.me{flex:1;font-size:20px;font-weight:800;color:var(--accent-d)}
+.me small{font-size:12px;font-weight:400;color:var(--sub);margin-right:6px}
+#gate{position:fixed;inset:0;z-index:20;background:var(--bg);overflow:auto;padding:24px 16px}
+#gate .in{max-width:520px;margin:0 auto}
+#gate h2{margin:0 0 6px;font-size:20px}
+#gate p{margin:0 0 14px;color:var(--sub);font-size:13.5px}
+.sbtn{display:block;width:100%;padding:15px;margin-bottom:8px;border:1px solid var(--line);background:#fff;border-radius:10px;font:inherit;font-size:17px;font-weight:700;cursor:pointer;text-align:left}
+.sbtn:active{background:var(--chip)}
+.others{margin-top:5px;font-size:12.5px;color:#7a4b00;background:#fff4dc;border-radius:6px;padding:4px 8px}
+tr.mine td{background:#fff4dc;font-weight:700}
+.tm{color:var(--sub);white-space:nowrap}
 </style>
 </head>
 <body>
+<div id="gate" hidden><div class="in"><h2>어느 매장이신가요?</h2><p>우리 매장을 한 번만 선택하면 이 기기에 기억됩니다. 선택한 매장 이름으로 요청이 기록됩니다.</p><div id="gbtns"></div></div></div>
 <header>
   <div class="row">
     <h1>액상 배분 선택</h1>
     <span class="dot" id="dot"></span><span class="status" id="status">연결 중…</span>
   </div>
   <div class="row" style="margin-top:8px">
-    <label for="store" style="font-size:13px;color:var(--sub)">우리 매장</label>
-    <select id="store"></select>
+    <div class="me" id="me"></div>
+    <button class="chip" id="chg">매장 변경</button>
   </div>
   <div class="tabs">
-    <div class="tab on" data-tab="pick">받고 싶은 액상 선택</div>
+    <div class="tab on" data-tab="pick">액상 선택</div>
+    <div class="tab" data-tab="live">실시간 현황</div>
     <div class="tab" data-tab="result">배분 결과</div>
   </div>
 </header>
@@ -74,6 +87,11 @@ th{background:var(--chip)}td.n,th.n{text-align:right}
       <button class="chip" id="fSold">판매 기록 있는 것만</button>
     </div>
     <div id="list"></div>
+  </section>
+  <section id="live" hidden>
+    <div class="note">모든 매장이 누르는 요청이 실시간으로 올라옵니다. 새로고침이 필요 없습니다.</div>
+    <div class="box"><h2>매장별 요청 현황</h2><div id="liveStore"></div></div>
+    <div class="box"><h2>요청 내역 (최근순)</h2><div id="liveList"></div></div>
   </section>
   <section id="result" hidden>
     <div class="note">모든 매장의 선택을 모아 실시간으로 계산한 결과입니다. 같은 액상을 여러 매장이 원하면 3개월 일평균 판매가 높은 매장부터 배정하고, 보내는 매장은 그 액상을 선택하지 않은 매장 중 판매가 적은 곳부터 정합니다.</div>
@@ -90,7 +108,7 @@ var D=window.DATA,S=D.stores,N=S.length,items=D.items;
 var vel=S.map(function(_,i){return 1/D.days[i];});
 var cfg={apiKey:"AIzaSyCp5sj3g1l399NRgVHdcMKJ9PAvzxfDuOU",authDomain:"wevape-liquid-allocation.firebaseapp.com",projectId:"wevape-liquid-allocation",storageBucket:"wevape-liquid-allocation.firebasestorage.app",messagingSenderId:"1013746226379",appId:"1:1013746226379:web:d16754c677575fe677374e"};
 var $=function(id){return document.getElementById(id)};
-var me=0;try{var sv=localStorage.getItem('alloc_store');if(sv!==null&&+sv<N)me=+sv;}catch(e){}
+var me=-1;try{var sv=localStorage.getItem('alloc_store');if(sv!==null&&sv!==''&&+sv>=0&&+sv<N)me=+sv;}catch(e){}
 var snap={};      // docId -> {store,item,qty,at}
 var edits={};     // code -> qty (my store, not yet confirmed)
 var timers={};
@@ -98,8 +116,9 @@ var filt={sel:false,sold:false,q:''};
 var open={};
 var db=null,col=null;
 
-S.forEach(function(s,i){var o=document.createElement('option');o.value=i;o.textContent=s;$('store').appendChild(o);});
-$('store').value=me;
+function showMe(){var e=$('me');e.textContent='';var sm=document.createElement('small');sm.textContent='현재 매장';e.appendChild(sm);e.appendChild(document.createTextNode(me>=0?S[me]:'선택 필요'));}
+function openGate(){var g=$('gbtns');g.textContent='';S.forEach(function(s,i){var b=document.createElement('button');b.className='sbtn';b.textContent=s;b.addEventListener('click',function(){me=i;edits={};try{localStorage.setItem('alloc_store',String(me));}catch(e){}$('gate').hidden=true;showMe();renderPick();renderLive();if(!$('result').hidden)renderResult();});g.appendChild(b);});$('gate').hidden=false;}
+showMe();if(me<0)openGate();
 $('asof').textContent='보유·판매 수량은 포스 기준 '+D.asOf+' 데이터입니다(판매량은 최근 3개월).';
 
 function setStatus(on,t){$('dot').className='dot '+(on?'on':'off');$('status').textContent=t;}
@@ -142,6 +161,7 @@ function myTotals(){
   return {kinds:kinds,cnt:cnt};
 }
 function renderPick(){
+  if(me<0){$('list').textContent='';$('mysum').textContent='매장을 먼저 선택해 주세요';return;}
   var t=myTotals();
   $('mysum').textContent=t.kinds?('내 요청 '+t.kinds+'종 · 총 '+t.cnt+'개'):'내 요청 없음';
   $('fSel').classList.toggle('on',filt.sel);$('fSold').classList.toggle('on',filt.sold);
@@ -176,6 +196,8 @@ function renderPick(){
     inp.addEventListener('change',function(){setQty(code,parseInt(inp.value,10)||0,others);});
     st.appendChild(minus);st.appendChild(inp);st.appendChild(plus);
     top.appendChild(left);top.appendChild(st);el.appendChild(top);
+    var oth=[];for(var s3=0;s3<N;s3++){if(s3===me)continue;var oq=qtyOf(s3,code);if(oq>0)oth.push(S[s3]+' '+oq+'개');}
+    if(oth.length){var ot=document.createElement('div');ot.className='others';ot.textContent='다른 매장 요청: '+oth.join(', ');el.appendChild(ot);}
     if(mine>0){
       var a=(allocItem(it)||[]).filter(function(x){return x.s===me})[0];
       if(a){
@@ -208,10 +230,10 @@ function setQty(code,q,max){
   edits[code]=q;
   clearTimeout(timers[code]);
   timers[code]=setTimeout(function(){writeQty(code,q);},250);
-  renderPick();if(!$('result').hidden)renderResult();
+  renderPick();renderLive();if(!$('result').hidden)renderResult();
 }
 function writeQty(code,q){
-  if(!col){return;}
+  if(!col||me<0){return;}
   var id=idOf(S[me],code),ref=col.doc(id);
   var p=q>0?ref.set({store:S[me],item:code,qty:q,at:Date.now()}):ref.delete();
   p.catch(function(e){setStatus(false,'저장 실패 — 인터넷 연결을 확인해 주세요');});
@@ -243,6 +265,31 @@ function renderResult(){
   moves.forEach(function(m){var tr=document.createElement('tr');cell(tr,S[m.from]);cell(tr,S[m.to]);cell(tr,m.name);cell(tr,m.qty,1);t2.appendChild(tr);});
   mv.appendChild(t2);
 }
+function fmtT(ms){var d=new Date(ms),t=new Date();var hm=('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2);return d.toDateString()===t.toDateString()?hm:(d.getMonth()+1)+'/'+d.getDate()+' '+hm;}
+function renderLive(){
+  var rows=[];Object.keys(snap).forEach(function(k){var d=snap[k];if(d&&d.qty>0)rows.push(d);});
+  rows.sort(function(a,b){return b.at-a.at;});
+  var per={};S.forEach(function(s){per[s]={k:0,c:0,t:0};});
+  rows.forEach(function(r){var p=per[r.store];if(!p)return;p.k++;p.c+=r.qty;if(r.at>p.t)p.t=r.at;});
+  var ls=$('liveStore');ls.textContent='';
+  var tb=document.createElement('table');head(tb,[['매장'],['요청 종류',1],['요청 개수',1],['마지막 요청']]);
+  S.forEach(function(s,i){var p=per[s],tr=document.createElement('tr');if(i===me)tr.className='mine';cell(tr,s+(i===me?' (우리)':''));cell(tr,p.k,1);cell(tr,p.c,1);var td=document.createElement('td');td.className='tm';td.textContent=p.t?fmtT(p.t):'아직 없음';tr.appendChild(td);tb.appendChild(tr);});
+  ls.appendChild(tb);
+  var ll=$('liveList');ll.textContent='';
+  if(!rows.length){var e=document.createElement('div');e.className='empty';e.textContent='아직 요청이 없습니다.';ll.appendChild(e);return;}
+  var all=allocAll();
+  var t2=document.createElement('table');head(t2,[['시각'],['요청 매장'],['액상'],['요청',1],['받아올 매장']]);
+  rows.forEach(function(r){
+    var si=S.indexOf(r.store),a=all[r.item]&&all[r.item].filter(function(x){return x.s===si;})[0];
+    var tr=document.createElement('tr');if(si===me)tr.className='mine';
+    var td=document.createElement('td');td.className='tm';td.textContent=fmtT(r.at);tr.appendChild(td);
+    cell(tr,r.store);cell(tr,nameOf(r.item));cell(tr,r.qty,1);
+    var src=a&&a.from.length?a.from.map(function(f){return S[f.from]+' '+f.qty;}).join(', '):'재고 없음';
+    if(a&&a.got<a.req&&a.from.length)src+=' (부족 '+(a.req-a.got)+')';
+    cell(tr,src);t2.appendChild(tr);
+  });
+  ll.appendChild(t2);
+}
 function csvEsc(v){v=String(v);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}
 $('csv').addEventListener('click',function(){
   var rows=[['보내는 매장','받는 매장','품목코드','액상','수량']].concat(lastMoves.map(function(m){return [S[m.from],S[m.to],m.code,m.name,m.qty];}));
@@ -252,7 +299,7 @@ $('csv').addEventListener('click',function(){
 });
 
 // ---------- 이벤트 ----------
-$('store').addEventListener('change',function(){me=+$('store').value;edits={};try{localStorage.setItem('alloc_store',String(me));}catch(e){}renderPick();});
+$('chg').addEventListener('click',openGate);
 $('q').addEventListener('input',function(){filt.q=$('q').value;renderPick();});
 $('fSel').addEventListener('click',function(){filt.sel=!filt.sel;renderPick();});
 $('fSold').addEventListener('click',function(){filt.sold=!filt.sold;renderPick();});
@@ -266,9 +313,9 @@ $('clear').addEventListener('click',function(){
 Array.prototype.forEach.call(document.querySelectorAll('.tab'),function(t){
   t.addEventListener('click',function(){
     Array.prototype.forEach.call(document.querySelectorAll('.tab'),function(x){x.classList.toggle('on',x===t);});
-    var r=t.getAttribute('data-tab')==='result';
-    $('pick').hidden=r;$('result').hidden=!r;
-    if(r)renderResult();else renderPick();
+    var k=t.getAttribute('data-tab');
+    $('pick').hidden=k!=='pick';$('live').hidden=k!=='live';$('result').hidden=k!=='result';
+    if(k==='result')renderResult();else if(k==='live')renderLive();else renderPick();
   });
 });
 
@@ -287,7 +334,7 @@ try{
       if(cur===edits[code])delete edits[code];
     });
     setStatus(true,'실시간 연결됨');
-    renderPick();if(!$('result').hidden)renderResult();
+    renderPick();renderLive();if(!$('result').hidden)renderResult();
   },function(err){clearTimeout(timeout);setStatus(false,'연결 오류 — 새로고침해 주세요');});
 }catch(e){setStatus(false,'연결 오류');}
 })();
